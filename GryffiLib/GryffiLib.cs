@@ -3,6 +3,10 @@ using System.Collections.Generic;
 using System.IO;
 using System.Runtime.Serialization.Formatters.Binary;
 using System.Security.Cryptography;
+using System.Collections;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using Newtonsoft.Json;
 
 namespace GryffiLib
 {
@@ -12,10 +16,10 @@ namespace GryffiLib
         Beta,
         Release
     }
-    [Serializable()]
-    class Patchlist
-    {
 
+    [Serializable()]
+    public class Patchlist
+    {
         public int Version { get; set; }
         public string DownloadDirectory { get; set; }
         public List<Directories> Directories = new List<Directories>();
@@ -23,36 +27,114 @@ namespace GryffiLib
         public Channel VersionChannel;
     }
     [Serializable()]
-    class Files
+    public class Files
     {
-        public string Filename { get; set; }
-        public DateTime CreationDate { get; set; }
-        public string Md5Hash { get; set; }
+        public string _filename { get; set; }
+        public DateTime _creationDate { get; set; }
+        public string _md5Hash { get; set; }
+
+        public string Filename { get { return _filename; }
+            set
+            {
+                _filename = value;
+                NotifyPropertyChanged("Filename");
+            }
+        }
+        public DateTime CreationDate
+        {
+            get { return _creationDate; }
+            set
+            {
+                _creationDate = value;
+                NotifyPropertyChanged("CreationDate");
+            }
+        }
+        public string Md5Hash
+        {
+            get { return _md5Hash; }
+            set
+            {
+                _md5Hash = value;
+                NotifyPropertyChanged("Md5Hash");
+            }
+        }
+        #region INotifyPropertyChanged Members
+
+        public event PropertyChangedEventHandler PropertyChanged;
+
+        #endregion
+
+        #region Private Helpers
+
+        private void NotifyPropertyChanged(string propertyName)
+        {
+            if (PropertyChanged != null)
+            {
+                PropertyChanged(this, new PropertyChangedEventArgs(propertyName));
+            }
+        }
+
+        #endregion
     }
     [Serializable()]
-    class Directories
+    public class Directories : INotifyPropertyChanged
     {
-        public string DirectoryName { get; set; }
-        public bool CheckFiles { get; set; }
+        public string _directoryName { get; set; }
+        public bool _checkFiles { get; set; }
+
+        public string DirectoryName
+        {
+            get
+            { return _directoryName; }
+            set
+            {
+                _directoryName = value;
+                NotifyPropertyChanged("DirectoryName");
+            }
+        }
+        public bool CheckFiles
+        {
+            get
+            { return _checkFiles; }
+            set
+            {
+                _checkFiles = value;
+                NotifyPropertyChanged("CheckFiles");
+            }
+        }
+        #region INotifyPropertyChanged Members
+
+        public event PropertyChangedEventHandler PropertyChanged;
+
+        #endregion
+
+        #region Private Helpers
+
+        private void NotifyPropertyChanged(string propertyName)
+        {
+            if (PropertyChanged != null)
+            {
+                PropertyChanged(this, new PropertyChangedEventArgs(propertyName));
+            }
+        }
+
+        #endregion
     }
     public class Gryffi
     {
+
         /// <summary>
         /// The patchlist object
         /// </summary>
-        static Patchlist LPatchlist = new Patchlist();
+        public static Patchlist GryffiPatchlist = new Patchlist();
         /// <summary>
         /// The current programs directory
         /// </summary>
-        static string SCurrentDirectory = Directory.GetCurrentDirectory() + "\\";
+       public static string SCurrentDirectory = Directory.GetCurrentDirectory() + "\\";
         /// <summary>
         /// The name of the patchlist
         /// </summary>
         static string SPatchlistName = "list.txt";
-        /// <summary>
-        /// Location of the patchlist
-        /// </summary>
-        static string SPatchlistFile = SCurrentDirectory + SPatchlistName;
         /// <summary>
         /// Base patchserver url
         /// </summary>
@@ -60,11 +142,11 @@ namespace GryffiLib
         /// <summary>
         /// If the client is patching a dev, release or beta build
         /// </summary>
-        static public string SVersionChannel = Enum.GetName(typeof(Channel), LPatchlist.VersionChannel);
+        static public string SVersionChannel = Enum.GetName(typeof(Channel), GryffiPatchlist.VersionChannel);
         /// <summary>
         // The url of the current patchlist
         /// </summary>
-        static string SPatchServerUrl = PatchServerUrl + LPatchlist.DownloadDirectory + SVersionChannel + "/" + LPatchlist.Version.ToString() + "/";
+        static string SPatchServerUrl = PatchServerUrl + GryffiPatchlist.DownloadDirectory + SVersionChannel + "/" + GryffiPatchlist.Version.ToString() + "/";
         /// <summary>
         /// FTP Password
         /// </summary>
@@ -88,73 +170,83 @@ namespace GryffiLib
         /// <summary>
         /// Load the patchlist after it is downloaded
         /// </summary>
-        public static void LoadPatchlist()
+        public static void DeserializePatchlist()
         {
-            Stream stream = File.Open(SPatchlistName, FileMode.Open);
-            BinaryFormatter binaryFormatter = new BinaryFormatter();
-            Console.WriteLine("Loading Patchlist...");
-            LPatchlist = (Patchlist)binaryFormatter.Deserialize(stream);
-            stream.Close();
-            Console.WriteLine(String.Format("{0} Directories and {1} Files loaded", LPatchlist.Directories.Count, LPatchlist.Files.Count));
+            string json = File.ReadAllText(SCurrentDirectory + SPatchlistName);
+            GryffiPatchlist = JsonConvert.DeserializeObject<Patchlist>(json);
+            Console.WriteLine(String.Format("{0} Directories and {1} Files loaded", GryffiPatchlist.Directories.Count, GryffiPatchlist.Files.Count));
         }
+        public static void SerializePatchlist()
+        {
+            var json = JsonConvert.SerializeObject(GryffiPatchlist);
+            File.WriteAllText(SCurrentDirectory + SPatchlistName, json);
+        }
+        public static void PopulatePatchList()
+        {
 
+            foreach (var file in Directory.GetFiles(SCurrentDirectory))
+            {
+                string filename = file.Replace(SCurrentDirectory, null);
+                //if (filename != ExecutableName && filename != "GryffiLib.dll")
+                //{
+                GryffiPatchlist.Files.Add(new Files
+                {
+                    _filename = filename,
+                    _creationDate = File.GetCreationTime(file),
+                    _md5Hash = CheckMD5(file)
+                });
+                //}
+
+            }
+            //Add Root Directory
+            GryffiPatchlist.Directories.Add(new Directories
+            {
+                _directoryName = "",
+                CheckFiles = true
+            });
+            foreach (var directory in Directory.GetDirectories(SCurrentDirectory))
+            {
+                GryffiPatchlist.Directories.Add(new Directories
+                {
+                    _directoryName = directory.Replace(SCurrentDirectory, null),
+                    CheckFiles = true
+                });
+                foreach (var file in Directory.GetFiles(directory))
+                {
+                    GryffiPatchlist.Files.Add(new Files
+                    {
+                        _filename = file.Replace(SCurrentDirectory, null),
+                        _creationDate = File.GetCreationTime(file),
+                        _md5Hash = CheckMD5(file)
+                    });
+                }
+            }
+        }
         /// <summary>
         /// Creates a patchlist from the LPatchlist object
         /// </summary>
         /// <param name="version">The version of the client</param>
         /// <param name="autoUpload">If after the patchlist is created should it be uploaded with all files.</param>
-        public static void CreatePatchlist(int version, bool autoUpload = false, Channel channel = Channel.Dev)
+        public static void CreatePatchlist(int version, bool populateList, bool autoUpload = false, Channel channel = Channel.Dev)
         {
             FtpLib.url = FTPUrl;
             FtpLib.username = FTPUsername;
             FtpLib.password = FTPPassword;
-            LPatchlist.VersionChannel = channel;
-            LPatchlist.Version = version;
-            SVersionChannel = Enum.GetName(typeof(Channel), LPatchlist.VersionChannel);
+            GryffiPatchlist.VersionChannel = channel;
+            GryffiPatchlist.Version = version;
+            SVersionChannel = Enum.GetName(typeof(Channel), GryffiPatchlist.VersionChannel);
 
-            foreach (var file in Directory.GetFiles(SCurrentDirectory))
+            if(populateList == true)
             {
-                LPatchlist.Files.Add(new Files
-                {
-                    Filename = file.Replace(SCurrentDirectory, null),
-                    CreationDate = File.GetCreationTime(file),
-                    Md5Hash = CheckMD5(file)
-                });
+                PopulatePatchList();
             }
-            //Add Root Directory
-            LPatchlist.Directories.Add(new Directories
-            {
-                DirectoryName = "",
-                CheckFiles = true
-            });
-            foreach (var directory in Directory.GetDirectories(SCurrentDirectory))
-            {
-                LPatchlist.Directories.Add(new Directories
-                {
-                    DirectoryName = directory.Replace(SCurrentDirectory, null),
-                    CheckFiles = true
-                });
-                foreach (var file in Directory.GetFiles(directory))
-                {
-                    LPatchlist.Files.Add(new Files
-                    {
-                        Filename = file.Replace(SCurrentDirectory, null),
-                        CreationDate = File.GetCreationTime(file),
-                        Md5Hash = CheckMD5(file)
-                    });
-                }
-            }
-            Stream stream = File.Open(SPatchlistName, FileMode.Create);
-            BinaryFormatter bformatter = new BinaryFormatter();
-            Console.WriteLine("Writing patchlist");
-            Console.WriteLine(String.Format("{0} Directories and {1} Files", LPatchlist.Directories.Count, LPatchlist.Files.Count));
-            bformatter.Serialize(stream, LPatchlist);
-            stream.Close();
+            SerializePatchlist();
+
             if (autoUpload == true)
             {
-                foreach (var file in LPatchlist.Files)
+                foreach (var file in GryffiPatchlist.Files)
                 {
-                    GZipLib.Compress(file.Filename);
+                    GZipLib.Compress(file._filename);
                 }
                 CreateRemoteFolders();
                 UploadUpdate();
@@ -183,17 +275,17 @@ namespace GryffiLib
         /// </summary>
         public static void CleanPatchCreation()
         {
-            foreach (var directory in LPatchlist.Directories)
+            foreach (var directory in GryffiPatchlist.Directories)
             {
-                string folder = PatchFolder + "/" + SVersionChannel + "/" + LPatchlist.Version.ToString() + "/" + directory.DirectoryName;
+                string folder = PatchFolder + "/" + SVersionChannel + "/" + GryffiPatchlist.Version.ToString() + "/" + directory._directoryName;
                 Directory.CreateDirectory(folder);
                 Console.WriteLine(string.Format("Creating dir {0}", folder));
             }
-            foreach (var file in LPatchlist.Files)
+            foreach (var file in GryffiPatchlist.Files)
             {
-                string filename = file.Filename.Replace(SCurrentDirectory, null);
-                string moveFrom = SCurrentDirectory + file.Filename + GzipExtension;
-                string moveTo = PatchFolder + "/" + SVersionChannel + "/" + LPatchlist.Version.ToString() + "/" + filename + GzipExtension;
+                string filename = file._filename.Replace(SCurrentDirectory, null);
+                string moveFrom = SCurrentDirectory + file._filename + GzipExtension;
+                string moveTo = PatchFolder + "/" + SVersionChannel + "/" + GryffiPatchlist.Version.ToString() + "/" + filename + GzipExtension;
                 if (File.Exists(moveTo))
                 {
                     File.Delete(moveFrom);
@@ -205,6 +297,8 @@ namespace GryffiLib
                     Console.WriteLine(String.Format("Moving file {0} to {1}", moveFrom, moveTo));
                 }
             }
+            Console.WriteLine("Moving patchlist");
+            File.Move(SCurrentDirectory + SPatchlistName, PatchFolder + "/" + SVersionChannel + "/" + GryffiPatchlist.Version.ToString() + "/" + SPatchlistName);
         }
 
         /// <summary>
@@ -212,11 +306,13 @@ namespace GryffiLib
         /// </summary>
         public static void UploadUpdate()
         {
-            foreach (var file in LPatchlist.Files)
+            string remoteDirectory = "/" + SVersionChannel + "/" + GryffiPatchlist.Version.ToString() + "/";
+
+            foreach (var file in GryffiPatchlist.Files)
             {
-                FtpLib.Upload(("/" + SVersionChannel + "/" + LPatchlist.Version.ToString() + "/" +
-                    file.Filename.Replace(SCurrentDirectory, null) + GzipExtension), file.Filename);
+                FtpLib.Upload(( remoteDirectory + file._filename.Replace(SCurrentDirectory, null) + GzipExtension), file._filename);
             }
+            FtpLib.Upload(remoteDirectory + SPatchlistName, SCurrentDirectory + SPatchlistName);
         }
 
         /// <summary>
@@ -224,9 +320,9 @@ namespace GryffiLib
         /// </summary>
         public static void CreateRemoteFolders()
         {
-            foreach (var directory in LPatchlist.Directories)
+            foreach (var directory in GryffiPatchlist.Directories)
             {
-                string folder = "/" + SVersionChannel + "/" + LPatchlist.Version.ToString() + "/" + directory.DirectoryName;
+                string folder = "/" + SVersionChannel + "/" + GryffiPatchlist.Version.ToString() + "/" + directory._directoryName;
                 Console.WriteLine("Creating remote folder {0}", folder);
                 FtpLib.CreateFolder(folder);
             }
